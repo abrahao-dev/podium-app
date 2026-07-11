@@ -56,6 +56,21 @@ It's a workspace for people who run more than one agent at a time and want to *s
 
 ## Getting started
 
+### Download (no build required)
+
+Grab a ready-to-run installer from the [**Releases**](https://github.com/abrahao-dev/podium-app/releases) page:
+
+| OS | File | Notes |
+|---|---|---|
+| **Windows** | `.msi` or `.exe` | Run the installer. |
+| **macOS** | `.dmg` | Universal (Apple Silicon + Intel). Unsigned build — first launch: right-click → **Open**. |
+| **Linux** | `.AppImage` | `chmod +x Podium_*.AppImage && ./Podium_*.AppImage` — no install needed. |
+| **Linux** | `.deb` / `.rpm` | `sudo apt install ./Podium_*.deb` (or `dnf install`). |
+
+> No release yet? Build it yourself in one command — see [Build a release binary](#build-a-release-binary) below.
+
+If you want to explore the code, contribute, or run the latest unreleased version, follow the steps below.
+
 ### Prerequisites
 
 - [Node.js](https://nodejs.org) 18+
@@ -190,6 +205,21 @@ A maioria dos multiplexadores de terminal te dá abas e splits. O Podium te dá 
 - Persistência: JSON puro no `app_data_dir` do Tauri — sem banco de dados
 
 ## Começando
+
+### Baixar (sem compilar)
+
+Pegue um instalador pronto na página de [**Releases**](https://github.com/abrahao-dev/podium-app/releases):
+
+| SO | Arquivo | Observações |
+|---|---|---|
+| **Windows** | `.msi` ou `.exe` | Rode o instalador. |
+| **macOS** | `.dmg` | Universal (Apple Silicon + Intel). Build sem assinatura — na 1ª vez: clique direito → **Abrir**. |
+| **Linux** | `.AppImage` | `chmod +x Podium_*.AppImage && ./Podium_*.AppImage` — não precisa instalar. |
+| **Linux** | `.deb` / `.rpm` | `sudo apt install ./Podium_*.deb` (ou `dnf install`). |
+
+> Ainda sem release? Compile você mesmo com um comando — veja [Gerar binário de release](#gerar-binário-de-release) abaixo.
+
+Se quiser explorar o código, contribuir ou rodar a última versão não publicada, siga os passos abaixo.
 
 ### Pré-requisitos
 
