@@ -2,7 +2,7 @@
 
 Infinite spatial canvas for terminal windows running AI coding agents (Claude Code, Codex, OpenCode, plain shells) plus markdown sticky notes. Terminals connect to terminals (agent-to-agent prompt piping via PTY stdin) and to notes (output capture). No built-in AI — orchestrates external CLI agents the user has installed.
 
-Primary target: **Windows**. Development on macOS. Both must work at all times.
+Primary target: **Windows**. Development on macOS. Also supported: **Linux** (X11/Wayland via WebKitGTK). All three must build and run at all times.
 
 ## Stack (fixed — do not substitute)
 
@@ -34,7 +34,7 @@ Events (Rust → frontend):
 
 One dedicated reader thread per session, 4KB reads.
 
-Default shell: `$SHELL` on Unix (fallback `/bin/zsh`); Windows prefers `pwsh.exe` on PATH, else `powershell.exe`.
+Default shell: `$SHELL` on Unix; if unset, first existing of `/bin/bash` → `/bin/zsh` → `/bin/sh` (bash is ubiquitous on Linux, zsh the macOS default). Windows prefers `pwsh.exe` on PATH, else `powershell.exe`.
 
 ## Cross-platform rules
 
@@ -43,7 +43,7 @@ Default shell: `$SHELL` on Unix (fallback `/bin/zsh`); Windows prefers `pwsh.exe
 - Write `\r` (not `\n`) to submit input to PTYs on both platforms.
 - Ctrl+C, arrows, etc. pass through xterm.js to the PTY untouched.
 - No `React.StrictMode`: terminal mount effects spawn real PTYs; double-invoke would spawn/kill twice.
-- CI will build on `windows-latest` + `macos-latest`; keep Rust platform-conditional code inside `pty.rs`.
+- CI builds on `windows-latest` + `macos-latest` + `ubuntu-latest` (`.github/workflows/ci.yml`); keep Rust platform-conditional code inside `pty.rs`. Linux needs WebKitGTK dev libs — see the workflow's apt step.
 
 ## Frontend layout
 

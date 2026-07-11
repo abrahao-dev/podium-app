@@ -13,6 +13,7 @@ Drop Claude Code, Codex, OpenCode — or plain shells — onto a zoomable canvas
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Rust](https://img.shields.io/badge/Rust-backend-000000?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20·%20macOS%20·%20Linux-6E56CF)](#-getting-started)
 
 **English** · [Português (BR)](#-português-br)
 
@@ -42,7 +43,7 @@ It's a workspace for people who run more than one agent at a time and want to *s
 | 📝 **Markdown notes** | Dependency-free renderer (no HTML injection). Capture → note appends the last 20 lines, timestamped. |
 | 💬 **Prompt broadcast** | Footer input pipes a prompt into every connected terminal's stdin at once. |
 | 💾 **Persistence** | Workspace saved as plain JSON in the app data dir. Debounced auto-save. No database. |
-| 🪟 **Cross-platform** | Windows (ConPTY) + macOS (openpty). Primary target is Windows. |
+| 🪟 **Cross-platform** | **Windows** (ConPTY) · **macOS** · **Linux** (openpty). One codebase, native bundles for all three: `.msi`/`.exe`, `.dmg`/`.app`, and `.deb`/`.rpm`/`.AppImage`. |
 
 ## Stack
 
@@ -61,6 +62,26 @@ It's a workspace for people who run more than one agent at a time and want to *s
 - [Rust](https://www.rust-lang.org/tools/install) (stable) + the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS
 - At least one AI CLI agent installed if you want to drive one (e.g. [Claude Code](https://claude.com/claude-code))
 
+#### Linux system dependencies
+
+Tauri renders through your system's WebKitGTK webview, so Linux needs a few dev libraries. On Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libappindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  libgtk-3-dev \
+  libssl-dev
+```
+
+- **Fedora:** `sudo dnf install webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel patchelf openssl-devel`
+- **Arch:** `sudo pacman -S webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf openssl`
+
+Both **X11 and Wayland** are supported (WebKitGTK picks the right backend). See the [Tauri Linux guide](https://tauri.app/start/prerequisites/#linux) if your distro differs.
+
 ### Run in development
 
 ```bash
@@ -75,6 +96,16 @@ npm run tauri dev
 ```bash
 npm run tauri build
 ```
+
+Tauri bundles for the OS you build on (cross-compilation isn't automatic). Outputs land in `src-tauri/target/release/bundle/`:
+
+| OS | Artifacts |
+|---|---|
+| **Windows** | `.msi` (WiX) and `.exe` (NSIS) installers |
+| **macOS** | `.app` bundle and `.dmg` |
+| **Linux** | `.deb`, `.rpm`, and `.AppImage` |
+
+> Pre-built binaries for all three platforms are produced on every push by the [CI workflow](./.github/workflows/ci.yml).
 
 ## Usage
 
@@ -103,7 +134,7 @@ Contributions are welcome! A few ground rules that keep the codebase healthy:
 
 - **TypeScript strict, no `any`.** `cargo clippy` must stay clean.
 - **All platform-specific Rust lives in `src-tauri/src/pty.rs`** — nowhere else.
-- **Windows and macOS must both work at all times.** Use Tauri path APIs; write `\r` (not `\n`) to submit input to PTYs.
+- **Windows, macOS, and Linux must all work at all times.** Use Tauri path APIs; write `\r` (not `\n`) to submit input to PTYs.
 - Conventional commits. Every change should keep the app launching.
 
 Open an issue to discuss anything non-trivial before a large PR.
@@ -147,7 +178,7 @@ A maioria dos multiplexadores de terminal te dá abas e splits. O Podium te dá 
 | 📝 **Notas markdown** | Renderizador sem dependências (sem injeção de HTML). Capturar → a nota adiciona as últimas 20 linhas com data/hora. |
 | 💬 **Broadcast de prompt** | Input do rodapé envia um prompt para o stdin de todos os terminais conectados de uma vez. |
 | 💾 **Persistência** | Workspace salvo como JSON puro no diretório de dados do app. Auto-save com debounce. Sem banco de dados. |
-| 🪟 **Multiplataforma** | Windows (ConPTY) + macOS (openpty). Alvo principal é Windows. |
+| 🪟 **Multiplataforma** | **Windows** (ConPTY) · **macOS** · **Linux** (openpty). Um só código, bundles nativos para os três: `.msi`/`.exe`, `.dmg`/`.app` e `.deb`/`.rpm`/`.AppImage`. |
 
 ## Stack
 
@@ -166,6 +197,26 @@ A maioria dos multiplexadores de terminal te dá abas e splits. O Podium te dá 
 - [Rust](https://www.rust-lang.org/tools/install) (stable) + os [pré-requisitos do Tauri](https://tauri.app/start/prerequisites/) para o seu SO
 - Pelo menos um agente CLI de IA instalado, se quiser operar um (ex.: [Claude Code](https://claude.com/claude-code))
 
+#### Dependências de sistema no Linux
+
+O Tauri renderiza pela webview WebKitGTK do sistema, então o Linux precisa de algumas bibliotecas de desenvolvimento. No Debian/Ubuntu:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libappindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  libgtk-3-dev \
+  libssl-dev
+```
+
+- **Fedora:** `sudo dnf install webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel patchelf openssl-devel`
+- **Arch:** `sudo pacman -S webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf openssl`
+
+**X11 e Wayland** são suportados (o WebKitGTK escolhe o backend certo). Veja o [guia Linux do Tauri](https://tauri.app/start/prerequisites/#linux) se sua distro for diferente.
+
 ### Rodar em desenvolvimento
 
 ```bash
@@ -180,6 +231,16 @@ npm run tauri dev
 ```bash
 npm run tauri build
 ```
+
+O Tauri empacota para o SO em que você compila (não há cross-compile automático). As saídas ficam em `src-tauri/target/release/bundle/`:
+
+| SO | Artefatos |
+|---|---|
+| **Windows** | Instaladores `.msi` (WiX) e `.exe` (NSIS) |
+| **macOS** | Bundle `.app` e `.dmg` |
+| **Linux** | `.deb`, `.rpm` e `.AppImage` |
+
+> Binários prontos para as três plataformas são gerados a cada push pelo [workflow de CI](./.github/workflows/ci.yml).
 
 ## Como usar
 
@@ -208,7 +269,7 @@ Contribuições são bem-vindas! Algumas regras que mantêm o código saudável:
 
 - **TypeScript strict, sem `any`.** `cargo clippy` precisa ficar limpo.
 - **Todo código Rust específico de plataforma vive em `src-tauri/src/pty.rs`** — em nenhum outro lugar.
-- **Windows e macOS precisam funcionar sempre.** Use as APIs de path do Tauri; escreva `\r` (não `\n`) para submeter input a PTYs.
+- **Windows, macOS e Linux precisam funcionar sempre.** Use as APIs de path do Tauri; escreva `\r` (não `\n`) para submeter input a PTYs.
 - Conventional commits. Toda mudança deve manter o app iniciando.
 
 Abra uma issue para discutir algo não trivial antes de um PR grande.
