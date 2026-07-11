@@ -39,7 +39,7 @@ interface WorkspaceState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdge: (id: string) => void;
-  addTerminal: (position: XYPosition) => void;
+  addTerminal: (position: XYPosition, command?: string, label?: string) => void;
   addNote: (position: XYPosition) => void;
   removeNode: (id: string) => void;
   updateNodeData: (
@@ -89,7 +89,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   removeEdge: (id) =>
     set((state) => ({ edges: state.edges.filter((e) => e.id !== id) })),
 
-  addTerminal: (position) =>
+  addTerminal: (position, command, label) =>
     set((state) => ({
       nodes: [
         ...state.nodes,
@@ -97,7 +97,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
           id: crypto.randomUUID(),
           type: "terminal",
           position,
-          data: { label: nextLabel(state.nodes), autoStart: true },
+          data: {
+            label: label ?? nextLabel(state.nodes),
+            autoStart: true,
+            command,
+          },
           dragHandle: ".terminal-node__header",
           width: 640,
           height: 400,

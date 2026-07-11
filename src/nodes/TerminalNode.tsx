@@ -64,6 +64,7 @@ function TerminalNodeComponent({
   const [renaming, setRenaming] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
   const updateNodeData = useWorkspaceStore((s) => s.updateNodeData);
   const removeNode = useWorkspaceStore((s) => s.removeNode);
 
@@ -146,10 +147,11 @@ function TerminalNodeComponent({
       });
 
     const dataSub = term.onData((input) => {
-      void pty.writeToTerminal(id, input);
+      // Ignore rejections: the PTY may have already exited.
+      void pty.writeToTerminal(id, input).catch(() => {});
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
-      void pty.resizeTerminal(id, cols, rows);
+      void pty.resizeTerminal(id, cols, rows).catch(() => {});
     });
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(container);
@@ -162,9 +164,17 @@ function TerminalNodeComponent({
       void unlistenExit.then((fn) => fn());
       termRef.current = null;
       term.dispose();
-      void pty.killTerminal(id);
+      void pty.killTerminal(id).catch(() => {});
     };
   }, [id, spawnKey]);
+
+  // Clear any pending flash timer on unmount so it never fires setState late.
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
 
   const start = () => {
     setStatus("starting");
@@ -180,20 +190,36 @@ function TerminalNodeComponent({
 
   const showFlash = (message: string) => {
     setFlash(message);
-    setTimeout(() => setFlash(null), 2000);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 2000);
+  };
+
+  /** Write to each target, reporting which succeeded vs. weren't running. */
+  const writeToTargets = async (
+    targets: ConnectedTerminal[],
+    payload: string,
+    verb: string,
+  ): Promise<boolean> => {
+    const results = await Promise.allSettled(
+      targets.map((t) => pty.writeToTerminal(t.id, payload)),
+    );
+    const failed = targets.filter((_, i) => results[i].status === "rejected");
+    const sent = targets.filter((_, i) => results[i].status === "fulfilled");
+    if (failed.length > 0) {
+      showFlash(`not running: ${failed.map((t) => t.label).join(", ")}`);
+    } else {
+      showFlash(`${verb} → ${sent.map((t) => t.label).join(", ")}`);
+    }
+    return sent.length > 0;
   };
 
   const sendPrompt = () => {
     const text = prompt.trim();
     if (text === "" || terminalTargets.length === 0) return;
-    for (const target of terminalTargets) {
-      // \r submits — never \n.
-      void pty.writeToTerminal(target.id, `${text}\r`).catch(() => {
-        showFlash(`${target.label} is not running`);
-      });
-    }
-    setPrompt("");
-    showFlash(`sent → ${terminalTargets.map((t) => t.label).join(", ")}`);
+    // \r submits — never \n.
+    void writeToTargets(terminalTargets, `${text}\r`, "sent").then((ok) => {
+      if (ok) setPrompt("");
+    });
   };
 
   const delegate = () => {
@@ -202,13 +228,9 @@ function TerminalNodeComponent({
     const output = lastLines(term, CAPTURE_LINES);
     if (output === "") return;
     const allowed = terminalTargets.filter((t) => t.allowIncoming);
+    if (allowed.length === 0) return;
     const handoff = `You received the following handoff from another agent (${data.label}):\n${output}\n`;
-    for (const target of allowed) {
-      void pty.writeToTerminal(target.id, `${handoff}\r`).catch(() => {
-        showFlash(`${target.label} is not running`);
-      });
-    }
-    showFlash(`delegated → ${allowed.map((t) => t.label).join(", ")}`);
+    void writeToTargets(allowed, `${handoff}\r`, "delegated");
   };
 
   const captureToNote = () => {
