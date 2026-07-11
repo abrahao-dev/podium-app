@@ -50,11 +50,14 @@ function App() {
       timer = setTimeout(flush, 1500);
     });
     const interval = setInterval(flush, 10_000);
+    // Best-effort save if the window closes inside the debounce window.
+    window.addEventListener("beforeunload", flush);
 
     return () => {
       unsubscribe();
       clearInterval(interval);
       clearTimeout(timer);
+      window.removeEventListener("beforeunload", flush);
     };
   }, []);
 
