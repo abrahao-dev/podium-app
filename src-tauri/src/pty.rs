@@ -21,11 +21,23 @@ pub struct PtyManager {
     sessions: Arc<Mutex<HashMap<String, PtySession>>>,
 }
 
-/// Default shell: $SHELL on Unix (fallback /bin/zsh); on Windows prefer
-/// PowerShell 7 (pwsh.exe) if on PATH, else powershell.exe.
+/// Default shell: $SHELL on Unix; if unset, the first of bash/zsh/sh that
+/// exists (bash is ubiquitous on Linux, zsh is the macOS default, sh is the
+/// POSIX floor). On Windows prefer PowerShell 7 (pwsh.exe) if on PATH, else
+/// powershell.exe.
 #[cfg(unix)]
 fn default_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| String::from("/bin/zsh"))
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.is_empty() {
+            return shell;
+        }
+    }
+    for candidate in ["/bin/bash", "/bin/zsh", "/bin/sh"] {
+        if std::path::Path::new(candidate).is_file() {
+            return String::from(candidate);
+        }
+    }
+    String::from("/bin/sh")
 }
 
 #[cfg(windows)]
