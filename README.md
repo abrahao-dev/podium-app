@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🏁 Podium
+<img src="./assets/logo.png" alt="Podium logo" width="128" height="128" />
+
+# Podium
 
 **An infinite spatial canvas for terminal windows running AI coding agents.**
 
@@ -163,7 +165,9 @@ Open an issue to discuss anything non-trivial before a large PR.
 
 <div align="center">
 
-# 🏁 Podium — Português (BR)
+<img src="./assets/logo.png" alt="Podium logo" width="128" height="128" />
+
+# Podium — Português (BR)
 
 **Um canvas espacial infinito para janelas de terminal rodando agentes de IA para código.**
 
