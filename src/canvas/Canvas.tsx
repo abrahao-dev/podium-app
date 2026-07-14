@@ -1,17 +1,20 @@
 import {
   Background,
   BackgroundVariant,
-  Controls,
   ReactFlow,
   ReactFlowProvider,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { TerminalNode } from "../nodes/TerminalNode";
 import { NoteNode } from "../nodes/NoteNode";
+import { BrowserNode } from "../nodes/BrowserNode";
 import { Toolbar } from "./Toolbar";
+import { Sidebar } from "./Sidebar";
+import { ZoomControls } from "./ZoomControls";
+import { TopBar } from "./TopBar";
 import { useWorkspaceStore } from "../store/workspace";
 
-const nodeTypes = { terminal: TerminalNode, note: NoteNode };
+const nodeTypes = { terminal: TerminalNode, note: NoteNode, browser: BrowserNode };
 
 function CanvasInner() {
   const nodes = useWorkspaceStore((s) => s.nodes);
@@ -36,7 +39,9 @@ function CanvasInner() {
       deleteKeyCode={null}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} />
-      <Controls />
+      <TopBar />
+      <Sidebar />
+      <ZoomControls />
       <Toolbar />
     </ReactFlow>
   );

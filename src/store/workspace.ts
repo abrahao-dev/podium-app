@@ -17,7 +17,7 @@ export interface TerminalNodeData extends Record<string, unknown> {
   command?: string;
   cwd?: string;
   /** True only for nodes created this session — restored nodes require a
-   *  click to respawn (never auto-run agents on load). */
+   *  click to spawn (never auto-run agents on load). */
   autoStart: boolean;
   /** Opt-in: connected agents may write handoff prompts into this terminal. */
   allowIncoming?: boolean;
@@ -27,9 +27,15 @@ export interface NoteNodeData extends Record<string, unknown> {
   text: string;
 }
 
+export interface BrowserNodeData extends Record<string, unknown> {
+  url: string;
+  label?: string;
+}
+
 export type TerminalFlowNode = Node<TerminalNodeData, "terminal">;
 export type NoteFlowNode = Node<NoteNodeData, "note">;
-export type PodiumNode = TerminalFlowNode | NoteFlowNode;
+export type BrowserFlowNode = Node<BrowserNodeData, "browser">;
+export type PodiumNode = TerminalFlowNode | NoteFlowNode | BrowserFlowNode;
 
 interface WorkspaceState {
   nodes: PodiumNode[];
@@ -39,12 +45,13 @@ interface WorkspaceState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   removeEdge: (id: string) => void;
-  addTerminal: (position: XYPosition, command?: string, label?: string) => void;
+  addTerminal: (position: XYPosition, command?: string, label?: string, role?: string, cwd?: string) => void;
   addNote: (position: XYPosition) => void;
+  addBrowser: (position: XYPosition, url?: string) => void;
   removeNode: (id: string) => void;
   updateNodeData: (
     id: string,
-    data: Partial<TerminalNodeData & NoteNodeData>,
+    data: Partial<TerminalNodeData & NoteNodeData & BrowserNodeData>,
   ) => void;
   setWorkspace: (nodes: PodiumNode[], edges: Edge[]) => void;
 }
@@ -89,7 +96,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   removeEdge: (id) =>
     set((state) => ({ edges: state.edges.filter((e) => e.id !== id) })),
 
-  addTerminal: (position, command, label) =>
+  addTerminal: (position, command, label, role, cwd) =>
     set((state) => ({
       nodes: [
         ...state.nodes,
@@ -101,6 +108,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
             label: label ?? nextLabel(state.nodes),
             autoStart: true,
             command,
+            role,
+            cwd,
           },
           dragHandle: ".terminal-node__header",
           width: 640,
@@ -121,6 +130,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
           dragHandle: ".note-node__header",
           width: 300,
           height: 220,
+        },
+      ],
+    })),
+
+  addBrowser: (position, url) =>
+    set((state) => ({
+      nodes: [
+        ...state.nodes,
+        {
+          id: crypto.randomUUID(),
+          type: "browser",
+          position,
+          data: { url: url ?? "about:blank" },
+          dragHandle: ".browser-node__header",
+          width: 600,
+          height: 450,
         },
       ],
     })),

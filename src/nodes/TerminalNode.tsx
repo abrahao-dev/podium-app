@@ -28,6 +28,22 @@ const TERMINAL_THEME = {
 
 const CAPTURE_LINES = 20;
 
+const URL_RE = /https?:\/\/[^\s<>"']+(?:\/[^\s<>"']*)?/gi;
+
+/** Extract the last URL found in the terminal buffer. */
+function lastUrl(term: Terminal): string | null {
+  const buffer = term.buffer.active;
+  const end = buffer.length - 1;
+  // Walk backwards until we find a URL.
+  for (let i = end; i >= 0; i -= 1) {
+    const line = buffer.getLine(i)?.translateToString(true) ?? "";
+    URL_RE.lastIndex = 0;
+    const match = URL_RE.exec(line);
+    if (match) return match[0];
+  }
+  return null;
+}
+
 /** Last non-empty lines of the terminal buffer (scrollback included). */
 function lastLines(term: Terminal, max: number): string {
   const buffer = term.buffer.active;
@@ -95,6 +111,16 @@ function TerminalNodeComponent({
         }),
     [edges, nodes, id],
   );
+  const browserTargets = useMemo<string[]>(
+    () =>
+      edges
+        .filter((e) => e.source === id)
+        .flatMap((e) => {
+          const n = nodes.find((node) => node.id === e.target);
+          return n?.type === "browser" ? [n.id] : [];
+        }),
+    [edges, nodes, id],
+  );
 
   // Spawn-time options read via ref so renames/edits don't respawn the PTY.
   const dataRef = useRef(data);
@@ -140,11 +166,20 @@ function TerminalNodeComponent({
         cols: term.cols,
         rows: term.rows,
       })
-      .then(() => setStatus("running"))
+      .then(() => {
+        setStatus("running");
+      })
       .catch((err: unknown) => {
         setStatus("exited");
         term.writeln(`Failed to start terminal: ${String(err)}`);
       });
+
+    // Allow browser default paste (Ctrl+V / Shift+Insert) instead of sending raw codes.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.ctrlKey && e.key === "v") return false;
+      if (e.type === "keydown" && e.shiftKey && e.key === "Insert") return false;
+      return true;
+    });
 
     const dataSub = term.onData((input) => {
       // Ignore rejections: the PTY may have already exited.
@@ -252,6 +287,55 @@ function TerminalNodeComponent({
 
   const delegateTargets = terminalTargets.filter((t) => t.allowIncoming);
 
+  const normalizeUrl = (input: string): string => {
+    const trimmed = input.trim();
+    if (trimmed === "") return "";
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+
+  const navigateToBrowser = (fromOutput = false) => {
+    const term = termRef.current;
+    let targetUrl = normalizeUrl(prompt);
+    // If prompt is empty and fromOutput flag is set, try to find URL in output.
+    if (targetUrl === "" && fromOutput && term) {
+      const found = lastUrl(term);
+      if (found) targetUrl = normalizeUrl(found);
+    }
+    if (targetUrl === "") {
+      if (fromOutput) showFlash("no URL found in terminal output");
+      return;
+    }
+    const state = useWorkspaceStore.getState();
+    if (browserTargets.length > 0) {
+      for (const browserId of browserTargets) {
+        state.updateNodeData(browserId, { url: targetUrl });
+      }
+      showFlash(`opened → ${browserTargets.length} browser(s)`);
+    } else {
+      // Position the new browser node to the right of this terminal.
+      const node = state.nodes.find((n) => n.id === id);
+      const px = node?.position?.x ?? 200;
+      const py = node?.position?.y ?? 200;
+      const browserId = crypto.randomUUID();
+      state.addBrowser({ x: px + 660, y: py - 20 }, targetUrl);
+      // Auto-connect after state settles so the new node exists.
+      setTimeout(() => {
+        const s = useWorkspaceStore.getState();
+        const browserExists = s.nodes.some((n) => n.id === browserId);
+        if (!browserExists) return;
+        s.onConnect({
+          source: id,
+          target: browserId,
+          sourceHandle: null,
+          targetHandle: null,
+        });
+      }, 0);
+      showFlash("browser created + URL opened");
+    }
+    if (!fromOutput) setPrompt("");
+  };
+
   return (
     <div className="terminal-node">
       <NodeResizer
@@ -298,6 +382,17 @@ function TerminalNodeComponent({
         <span className="terminal-node__command">
           {data.command ?? "shell"}
         </span>
+        <button
+          className="terminal-node__url-btn nodrag"
+          title="Open last URL from terminal output in browser"
+          disabled={status !== "running"}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigateToBrowser(true);
+          }}
+        >
+          URL ▶
+        </button>
         <button
           className={`terminal-node__lock nodrag ${
             data.allowIncoming ? "terminal-node__lock--open" : ""
@@ -346,43 +441,64 @@ function TerminalNodeComponent({
         )}
         {flash && <div className="terminal-node__flash">{flash}</div>}
       </div>
-      {(terminalTargets.length > 0 || noteTargets.length > 0) && (
+      {(terminalTargets.length > 0 || noteTargets.length > 0 || browserTargets.length > 0) && (
         <div className="terminal-node__footer nodrag">
-          {terminalTargets.length > 0 && (
+          {(terminalTargets.length > 0 || browserTargets.length > 0) && (
             <>
               <input
                 className="terminal-node__prompt"
-                placeholder={`Prompt → ${terminalTargets
-                  .map((t) => t.label)
-                  .join(", ")}`}
+                placeholder={
+                  terminalTargets.length > 0 && browserTargets.length > 0
+                    ? `Prompt / URL → ${[...terminalTargets.map((t) => t.label), ...browserTargets].join(", ")}`
+                    : terminalTargets.length > 0
+                      ? `Prompt → ${terminalTargets.map((t) => t.label).join(", ")}`
+                      : `URL → ${browserTargets.join(", ")}`
+                }
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") sendPrompt();
+                  if (e.key === "Enter") {
+                    if (terminalTargets.length > 0) sendPrompt();
+                    else if (browserTargets.length > 0) navigateToBrowser();
+                  }
                 }}
               />
-              <button
-                className="terminal-node__action"
-                title="Send prompt to connected terminals"
-                onClick={sendPrompt}
-                disabled={prompt.trim() === ""}
-              >
-                Send
-              </button>
-              <button
-                className="terminal-node__action"
-                title={
-                  delegateTargets.length > 0
-                    ? `Hand last output to ${delegateTargets
-                        .map((t) => t.label)
-                        .join(", ")}`
-                    : "Target terminal must enable incoming prompts (⊘ → ⇥)"
-                }
-                onClick={delegate}
-                disabled={delegateTargets.length === 0 || status !== "running"}
-              >
-                Delegate
-              </button>
+              {terminalTargets.length > 0 && (
+                <button
+                  className="terminal-node__action"
+                  title="Send prompt to connected terminals"
+                  onClick={sendPrompt}
+                  disabled={prompt.trim() === ""}
+                >
+                  Send
+                </button>
+              )}
+              {browserTargets.length > 0 && (
+                <button
+                  className="terminal-node__action"
+                  title="Navigate connected browsers to this URL"
+                  onClick={() => navigateToBrowser()}
+                  disabled={normalizeUrl(prompt) === ""}
+                >
+                  Open →
+                </button>
+              )}
+              {terminalTargets.length > 0 && (
+                <button
+                  className="terminal-node__action"
+                  title={
+                    delegateTargets.length > 0
+                      ? `Hand last output to ${delegateTargets
+                          .map((t) => t.label)
+                          .join(", ")}`
+                      : "Target terminal must enable incoming prompts (⊘ → ⇥)"
+                  }
+                  onClick={delegate}
+                  disabled={delegateTargets.length === 0 || status !== "running"}
+                >
+                  Delegate
+                </button>
+              )}
             </>
           )}
           {noteTargets.length > 0 && (
