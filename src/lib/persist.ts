@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Edge } from "@xyflow/react";
 import type {
+  BrowserNodeData,
   NoteNodeData,
   PodiumNode,
   TerminalNodeData,
@@ -10,7 +11,7 @@ const WORKSPACE_NAME = "default";
 
 interface SavedNode {
   id: string;
-  type: "terminal" | "note";
+  type: "terminal" | "note" | "browser";
   x: number;
   y: number;
   width: number;
@@ -20,6 +21,7 @@ interface SavedNode {
   cwd?: string;
   allowIncoming?: boolean;
   text?: string;
+  url?: string;
 }
 
 interface SavedWorkspace {
@@ -39,6 +41,13 @@ function toSaved(node: PodiumNode): SavedNode {
   };
   if (node.type === "note") {
     return { ...base, text: (node.data as NoteNodeData).text };
+  }
+  if (node.type === "browser") {
+    return {
+      ...base,
+      url: (node.data as BrowserNodeData).url,
+      label: (node.data as BrowserNodeData).label,
+    };
   }
   const data = node.data as TerminalNodeData;
   return {
@@ -63,6 +72,14 @@ function fromSaved(saved: SavedNode): PodiumNode {
       type: "note",
       dragHandle: ".note-node__header",
       data: { text: saved.text ?? "" },
+    };
+  }
+  if (saved.type === "browser") {
+    return {
+      ...common,
+      type: "browser",
+      dragHandle: ".browser-node__header",
+      data: { url: saved.url ?? "about:blank", label: saved.label },
     };
   }
   return {
