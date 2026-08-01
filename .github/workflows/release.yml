@@ -69,6 +69,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Podium ${{ github.ref_name }}"
           releaseBody: "Download the installer for your OS below. See the README for setup and usage."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
