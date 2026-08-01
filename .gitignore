@@ -1,0 +1,10 @@
+# Dependencies — restored from package-lock.json via `npm ci`
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# OS cruft
+.DS_Store
+Thumbs.db
