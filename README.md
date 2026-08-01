@@ -122,6 +122,15 @@ Tauri bundles for the OS you build on (cross-compilation isn't automatic). Outpu
 | **macOS** | `.app` bundle and `.dmg` |
 | **Linux** | `.deb`, `.rpm`, and `.AppImage` |
 
+To get Podium into your system's application menu — icon, click to launch, no terminal — install the package you just built:
+
+```bash
+sudo dnf install ./src-tauri/target/release/bundle/rpm/Podium-*.x86_64.rpm   # Fedora
+sudo apt install ./src-tauri/target/release/bundle/deb/Podium_*_amd64.deb    # Debian/Ubuntu
+```
+
+> The `.AppImage` is portable and does **not** register a menu entry — use `.rpm`/`.deb` if you want a clickable icon.
+
 > Pre-built binaries for all three platforms are produced on every push by the [CI workflow](./.github/workflows/ci.yml).
 
 ## Usage
@@ -273,6 +282,15 @@ O Tauri empacota para o SO em que você compila (não há cross-compile automát
 | **Windows** | Instaladores `.msi` (WiX) e `.exe` (NSIS) |
 | **macOS** | Bundle `.app` e `.dmg` |
 | **Linux** | `.deb`, `.rpm` e `.AppImage` |
+
+Para colocar o Podium no menu de aplicativos do sistema — com ícone, abrindo por clique, sem terminal — instale o pacote que você acabou de gerar:
+
+```bash
+sudo dnf install ./src-tauri/target/release/bundle/rpm/Podium-*.x86_64.rpm   # Fedora
+sudo apt install ./src-tauri/target/release/bundle/deb/Podium_*_amd64.deb    # Debian/Ubuntu
+```
+
+> O `.AppImage` é portátil e **não** cria atalho no menu — use `.rpm`/`.deb` se quiser um ícone clicável.
 
 > Binários prontos para as três plataformas são gerados a cada push pelo [workflow de CI](./.github/workflows/ci.yml).
 
