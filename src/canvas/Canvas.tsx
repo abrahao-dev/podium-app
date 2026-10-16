@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -9,9 +10,13 @@ import "@xyflow/react/dist/style.css";
 import { TerminalNode } from "../nodes/TerminalNode";
 import { NoteNode } from "../nodes/NoteNode";
 import { Toolbar } from "./Toolbar";
+import { useCanvasNavigation } from "./useCanvasNavigation";
 import { useWorkspaceStore } from "../store/workspace";
 
 const nodeTypes = { terminal: TerminalNode, note: NoteNode };
+
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 2;
 
 function CanvasInner() {
   const nodes = useWorkspaceStore((s) => s.nodes);
@@ -20,9 +25,12 @@ function CanvasInner() {
   const onEdgesChange = useWorkspaceStore((s) => s.onEdgesChange);
   const onConnect = useWorkspaceStore((s) => s.onConnect);
   const removeEdge = useWorkspaceStore((s) => s.removeEdge);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  useCanvasNavigation(wrapperRef, MIN_ZOOM, MAX_ZOOM);
 
   return (
     <ReactFlow
+      ref={wrapperRef}
       nodes={nodes}
       edges={edges}
       onNodesChange={onNodesChange}
@@ -30,8 +38,8 @@ function CanvasInner() {
       onConnect={onConnect}
       onEdgeDoubleClick={(_, edge) => removeEdge(edge.id)}
       nodeTypes={nodeTypes}
-      minZoom={0.1}
-      maxZoom={2}
+      minZoom={MIN_ZOOM}
+      maxZoom={MAX_ZOOM}
       proOptions={{ hideAttribution: true }}
       deleteKeyCode={null}
     >
