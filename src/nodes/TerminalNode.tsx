@@ -116,9 +116,14 @@ function TerminalNodeComponent({
     term.loadAddon(fit);
     term.open(container);
     try {
-      term.loadAddon(new WebglAddon());
+      const webgl = new WebglAddon();
+      // The webview caps live WebGL contexts (~16) and drops the oldest
+      // beyond that; without this the terminal keeps a frozen frame.
+      // Disposing the addon falls back to the DOM renderer.
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
     } catch {
-      // WebGL unavailable — canvas renderer fallback is fine.
+      // WebGL unavailable — DOM renderer fallback is fine.
     }
     fit.fit();
     termRef.current = term;
