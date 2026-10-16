@@ -271,7 +271,17 @@ function TerminalNodeComponent({
         position={Position.Right}
         className="podium-handle"
       />
-      <div className="terminal-node__header">
+      <div
+        className="terminal-node__header"
+        onPointerDown={() => {
+          // Hand keyboard focus from the shell to the canvas so node
+          // shortcuts (Ctrl+C / Ctrl+V) apply instead of reaching the PTY.
+          const active = document.activeElement;
+          if (active instanceof HTMLElement && active.closest(".xterm")) {
+            active.blur();
+          }
+        }}
+      >
         <span
           className={`terminal-node__status terminal-node__status--${status}`}
         />

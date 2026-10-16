@@ -9,6 +9,7 @@ import "@xyflow/react/dist/style.css";
 import { TerminalNode } from "../nodes/TerminalNode";
 import { NoteNode } from "../nodes/NoteNode";
 import { Toolbar } from "./Toolbar";
+import { useTerminalClipboard } from "./useTerminalClipboard";
 import { useWorkspaceStore } from "../store/workspace";
 
 const nodeTypes = { terminal: TerminalNode, note: NoteNode };
@@ -20,6 +21,7 @@ function CanvasInner() {
   const onEdgesChange = useWorkspaceStore((s) => s.onEdgesChange);
   const onConnect = useWorkspaceStore((s) => s.onConnect);
   const removeEdge = useWorkspaceStore((s) => s.removeEdge);
+  useTerminalClipboard();
 
   return (
     <ReactFlow
