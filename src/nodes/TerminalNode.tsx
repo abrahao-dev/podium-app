@@ -27,6 +27,8 @@ const TERMINAL_THEME = {
 };
 
 const CAPTURE_LINES = 20;
+/** Gives the shell time to run the submitted line and redraw its prompt. */
+const CWD_SYNC_DELAY_MS = 500;
 
 /** Last non-empty lines of the terminal buffer (scrollback included). */
 function lastLines(term: Terminal, max: number): string {
@@ -146,9 +148,23 @@ function TerminalNodeComponent({
         term.writeln(`Failed to start terminal: ${String(err)}`);
       });
 
+    // The directory can only change after a submitted line (e.g. `cd`), so it
+    // is read once shortly after Enter instead of polled.
+    let cwdTimer: ReturnType<typeof setTimeout> | undefined;
+    const syncCwd = () => {
+      void pty
+        .getTerminalCwds([id])
+        .then((cwds) => useWorkspaceStore.getState().applyTerminalCwds(cwds))
+        .catch(() => {});
+    };
+
     const dataSub = term.onData((input) => {
       // Ignore rejections: the PTY may have already exited.
       void pty.writeToTerminal(id, input).catch(() => {});
+      if (input.includes("\r")) {
+        clearTimeout(cwdTimer);
+        cwdTimer = setTimeout(syncCwd, CWD_SYNC_DELAY_MS);
+      }
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
       void pty.resizeTerminal(id, cols, rows).catch(() => {});
@@ -157,6 +173,7 @@ function TerminalNodeComponent({
     observer.observe(container);
 
     return () => {
+      clearTimeout(cwdTimer);
       observer.disconnect();
       dataSub.dispose();
       resizeSub.dispose();

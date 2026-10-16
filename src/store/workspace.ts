@@ -47,6 +47,8 @@ interface WorkspaceState {
     data: Partial<TerminalNodeData & NoteNodeData>,
   ) => void;
   setWorkspace: (nodes: PodiumNode[], edges: Edge[]) => void;
+  /** Applies shell directories by terminal id; no-op when nothing changed. */
+  applyTerminalCwds: (cwds: Record<string, string>) => void;
 }
 
 function nextLabel(nodes: PodiumNode[]): string {
@@ -139,4 +141,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     })),
 
   setWorkspace: (nodes, edges) => set({ nodes, edges, hydrated: true }),
+
+  applyTerminalCwds: (cwds) =>
+    set((state) => {
+      let changed = false;
+      const nodes = state.nodes.map((n) => {
+        const cwd = cwds[n.id];
+        if (n.type !== "terminal" || cwd === undefined || n.data.cwd === cwd) {
+          return n;
+        }
+        changed = true;
+        return { ...n, data: { ...n.data, cwd } };
+      });
+      return changed ? { nodes } : state;
+    }),
 }));
