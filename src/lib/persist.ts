@@ -51,11 +51,12 @@ function toSaved(node: PodiumNode): SavedNode {
 }
 
 function fromSaved(saved: SavedNode): PodiumNode {
+  // Whole pixels: fractional positions blur terminal text at 100% zoom.
   const common = {
     id: saved.id,
-    position: { x: saved.x, y: saved.y },
-    width: saved.width,
-    height: saved.height,
+    position: { x: Math.round(saved.x), y: Math.round(saved.y) },
+    width: Math.round(saved.width),
+    height: Math.round(saved.height),
   };
   if (saved.type === "note") {
     return {
