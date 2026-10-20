@@ -105,7 +105,7 @@ Both **X11 and Wayland** are supported (WebKitGTK picks the right backend). See 
 git clone https://github.com/abrahao-dev/podium-app.git
 cd podium-app
 npm install
-npm run tauri dev
+npm run tauri:dev   # own app data; runs alongside an installed Podium
 ```
 
 ### Build a release binary
@@ -257,7 +257,7 @@ sudo apt-get install -y \
 git clone https://github.com/abrahao-dev/podium-app.git
 cd podium-app
 npm install
-npm run tauri dev
+npm run tauri:dev   # dados próprios; roda junto com um Podium instalado
 ```
 
 ### Gerar binário de release

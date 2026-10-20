@@ -4,9 +4,9 @@
   "version": "0.1.1",
   "identifier": "com.abrahao-dev.podium",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run build:cli && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:cli && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,6 +24,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["binaries/podium"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
