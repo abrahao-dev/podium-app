@@ -1,4 +1,5 @@
 mod pty;
+mod settings;
 mod workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -10,9 +11,13 @@ pub fn run() {
             pty::create_terminal,
             pty::write_to_terminal,
             pty::resize_terminal,
+            pty::get_terminal_cwds,
+            pty::get_terminal_agents,
             pty::kill_terminal,
             workspace::save_workspace,
-            workspace::load_workspace
+            workspace::load_workspace,
+            settings::save_settings,
+            settings::load_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

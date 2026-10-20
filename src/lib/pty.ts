@@ -31,6 +31,26 @@ export function resizeTerminal(
   return invoke("resize_terminal", { id, cols, rows });
 }
 
+/** Shell's current directory per terminal id; unknown / not running ids are omitted. */
+export function getTerminalCwds(ids: string[]): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("get_terminal_cwds", { ids });
+}
+
+export type AgentKind = "claude" | "codex" | "opencode";
+
+export interface AgentSession {
+  kind: AgentKind;
+  /** Agent's own session id; null → resume the last session in the terminal's cwd. */
+  sessionId: string | null;
+}
+
+/** Agent CLI running in each terminal's shell; ids without one are omitted. */
+export function getTerminalAgents(
+  ids: string[],
+): Promise<Record<string, AgentSession>> {
+  return invoke<Record<string, AgentSession>>("get_terminal_agents", { ids });
+}
+
 export function killTerminal(id: string): Promise<void> {
   return invoke("kill_terminal", { id });
 }

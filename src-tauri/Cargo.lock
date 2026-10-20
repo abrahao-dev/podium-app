@@ -2512,12 +2512,14 @@ dependencies = [
 name = "podium-app"
 version = "0.1.1"
 dependencies = [
+ "libc",
  "portable-pty",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
