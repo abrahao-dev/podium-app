@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Edge } from "@xyflow/react";
-import type {
-  NoteNodeData,
-  PodiumNode,
-  TerminalNodeData,
+import {
+  nodeRect,
+  type NoteNodeData,
+  type PodiumNode,
+  type TerminalNodeData,
 } from "../store/workspace";
 
 const WORKSPACE_NAME = "default";
@@ -29,13 +30,14 @@ interface SavedWorkspace {
 }
 
 function toSaved(node: PodiumNode): SavedNode {
+  const rect = nodeRect(node);
   const base = {
     id: node.id,
     type: node.type ?? "terminal",
-    x: node.position.x,
-    y: node.position.y,
-    width: node.width ?? node.measured?.width ?? 640,
-    height: node.height ?? node.measured?.height ?? 400,
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
   };
   if (node.type === "note") {
     return { ...base, text: (node.data as NoteNodeData).text };
@@ -51,11 +53,12 @@ function toSaved(node: PodiumNode): SavedNode {
 }
 
 function fromSaved(saved: SavedNode): PodiumNode {
+  // Whole pixels: fractional positions blur terminal text at 100% zoom.
   const common = {
     id: saved.id,
-    position: { x: saved.x, y: saved.y },
-    width: saved.width,
-    height: saved.height,
+    position: { x: Math.round(saved.x), y: Math.round(saved.y) },
+    width: Math.round(saved.width),
+    height: Math.round(saved.height),
   };
   if (saved.type === "note") {
     return {

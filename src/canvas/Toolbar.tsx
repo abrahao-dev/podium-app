@@ -22,7 +22,11 @@ export function Toolbar() {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2,
     });
-    return { x: pos.x + offsetX, y: pos.y + offsetY };
+    // Whole pixels keep terminal text crisp at 100% zoom.
+    return {
+      x: Math.round(pos.x + offsetX),
+      y: Math.round(pos.y + offsetY),
+    };
   };
 
   const spawn = (command?: string) => {

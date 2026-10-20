@@ -10,6 +10,7 @@ pub fn run() {
             pty::create_terminal,
             pty::write_to_terminal,
             pty::resize_terminal,
+            pty::get_terminal_cwds,
             pty::kill_terminal,
             workspace::save_workspace,
             workspace::load_workspace
