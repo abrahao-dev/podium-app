@@ -3,6 +3,7 @@ import {
   Handle,
   NodeResizer,
   Position,
+  type Edge,
   type NodeProps,
 } from "@xyflow/react";
 import { Terminal } from "@xterm/xterm";
@@ -11,11 +12,15 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import type {
   NoteNodeData,
+  PodiumNode,
   TerminalFlowNode,
-  TerminalNodeData,
 } from "../store/workspace";
 import { useWorkspaceStore } from "../store/workspace";
+import { useSettingsStore } from "../store/settings";
 import * as pty from "../lib/pty";
+import { resumeCommand } from "../lib/agents";
+import { enqueueLaunch } from "../lib/launchQueue";
+import { registerRenderer } from "../lib/webglBudget";
 
 type TerminalStatus = "idle" | "starting" | "running" | "exited";
 
@@ -27,6 +32,43 @@ const TERMINAL_THEME = {
 };
 
 const CAPTURE_LINES = 20;
+/** xterm write-queue backpressure: above HIGH bytes not yet parsed, the
+ *  backend holds this terminal's output; below LOW it resumes (restoring the
+ *  view from its screen mirror). The PTY itself is never paused. */
+const OUTPUT_HIGH_WATER = 4 * 1024 * 1024;
+const OUTPUT_LOW_WATER = 512 * 1024;
+/** Gives the shell time to run the submitted line and redraw its prompt. */
+const CWD_SYNC_DELAY_MS = 500;
+/** A line that leaves no identified agent session is checked once more after
+ *  this, as agents boot and register their session after the Enter. */
+const AGENT_RESYNC_DELAY_MS = 4000;
+
+const IS_MAC = navigator.userAgent.includes("Mac");
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+/** Ctrl+V as a raw control byte (what the PTY got before paste was wired). */
+const CTRL_V = "\x16";
+
+/**
+ * Ctrl+V (Windows) and Ctrl+Shift+V (Windows/Linux) paste from the system
+ * clipboard. macOS already pastes with Cmd+V, so Ctrl+V still reaches the PTY.
+ */
+function isPasteShortcut(e: KeyboardEvent): boolean {
+  if (!useSettingsStore.getState().settings.shortcuts.pasteWithCtrlV) {
+    return false;
+  }
+  if (IS_MAC || !e.ctrlKey || e.altKey || e.metaKey || e.code !== "KeyV") {
+    return false;
+  }
+  return e.shiftKey || IS_WINDOWS;
+}
+
+/** Ctrl+Enter / Shift+Enter insert a line break in agent prompts. */
+function isNewlineShortcut(e: KeyboardEvent): boolean {
+  return (
+    useSettingsStore.getState().settings.shortcuts.newlineWithModifiedEnter &&
+    e.key === "Enter" && (e.ctrlKey || e.shiftKey) && !e.altKey && !e.metaKey
+  );
+}
 
 /** Last non-empty lines of the terminal buffer (scrollback included). */
 function lastLines(term: Terminal, max: number): string {
@@ -50,6 +92,54 @@ interface ConnectedTerminal {
   allowIncoming: boolean;
 }
 
+const KEY_FIELD = "\u001f";
+const KEY_RECORD = "\u001e";
+
+/** Outgoing targets of `id` encoded as a primitive, so a zustand selector
+ *  can compare it by value. */
+function outgoingTargetsKey(
+  nodes: PodiumNode[],
+  edges: Edge[],
+  id: string,
+): string {
+  const records: string[] = [];
+  for (const edge of edges) {
+    if (edge.source !== id) continue;
+    const node = nodes.find((n) => n.id === edge.target);
+    if (node?.type === "terminal") {
+      records.push(
+        [
+          "t",
+          node.id,
+          node.data.label,
+          node.data.allowIncoming === true ? "1" : "0",
+        ].join(KEY_FIELD),
+      );
+    } else if (node?.type === "note") {
+      records.push(["n", node.id].join(KEY_FIELD));
+    }
+  }
+  return records.join(KEY_RECORD);
+}
+
+function parseTargetsKey(key: string): {
+  terminalTargets: ConnectedTerminal[];
+  noteTargets: string[];
+} {
+  const terminalTargets: ConnectedTerminal[] = [];
+  const noteTargets: string[] = [];
+  if (key === "") return { terminalTargets, noteTargets };
+  for (const record of key.split(KEY_RECORD)) {
+    const [kind, nodeId, label, allow] = record.split(KEY_FIELD);
+    if (kind === "t") {
+      terminalTargets.push({ id: nodeId, label, allowIncoming: allow === "1" });
+    } else {
+      noteTargets.push(nodeId);
+    }
+  }
+  return { terminalTargets, noteTargets };
+}
+
 function TerminalNodeComponent({
   id,
   data,
@@ -57,6 +147,13 @@ function TerminalNodeComponent({
 }: NodeProps<TerminalFlowNode>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  /** Command for the next spawn only (e.g. resuming an agent session). */
+  const launchCommandRef = useRef<string | undefined>(undefined);
+  const fontSize = useSettingsStore((s) => s.settings.terminal.fontSize);
+  const restoreAgentSessions = useSettingsStore(
+    (s) => s.settings.sessions.restoreAgentSessions,
+  );
   const [status, setStatus] = useState<TerminalStatus>(
     data.autoStart ? "starting" : "idle",
   );
@@ -68,32 +165,15 @@ function TerminalNodeComponent({
   const updateNodeData = useWorkspaceStore((s) => s.updateNodeData);
   const removeNode = useWorkspaceStore((s) => s.removeNode);
 
-  // Outgoing connections drive the footer actions. Derived via useMemo —
-  // zustand selectors must return referentially stable snapshots.
-  const edges = useWorkspaceStore((s) => s.edges);
-  const nodes = useWorkspaceStore((s) => s.nodes);
-  const terminalTargets = useMemo<ConnectedTerminal[]>(
-    () =>
-      edges
-        .filter((e) => e.source === id)
-        .map((e) => nodes.find((n) => n.id === e.target))
-        .filter((n): n is TerminalFlowNode => n?.type === "terminal")
-        .map((n) => ({
-          id: n.id,
-          label: (n.data as TerminalNodeData).label,
-          allowIncoming: (n.data as TerminalNodeData).allowIncoming === true,
-        })),
-    [edges, nodes, id],
+  // Outgoing connections drive the footer actions. The selector returns a
+  // string so this node only re-renders when its own targets change, not on
+  // every drag frame of any node on the canvas.
+  const targetsKey = useWorkspaceStore((s) =>
+    outgoingTargetsKey(s.nodes, s.edges, id),
   );
-  const noteTargets = useMemo<string[]>(
-    () =>
-      edges
-        .filter((e) => e.source === id)
-        .flatMap((e) => {
-          const n = nodes.find((node) => node.id === e.target);
-          return n?.type === "note" ? [n.id] : [];
-        }),
-    [edges, nodes, id],
+  const { terminalTargets, noteTargets } = useMemo(
+    () => parseTargetsKey(targetsKey),
+    [targetsKey],
   );
 
   // Spawn-time options read via ref so renames/edits don't respawn the PTY.
@@ -107,7 +187,7 @@ function TerminalNodeComponent({
 
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: useSettingsStore.getState().settings.terminal.fontSize,
       fontFamily: "'SF Mono', Menlo, Consolas, 'Courier New', monospace",
       scrollback: 5000,
       theme: TERMINAL_THEME,
@@ -115,40 +195,152 @@ function TerminalNodeComponent({
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);
-    try {
-      term.loadAddon(new WebglAddon());
-    } catch {
-      // WebGL unavailable — canvas renderer fallback is fine.
-    }
+
+    // WebGL only while on screen and within the context budget; otherwise
+    // the DOM renderer (or nothing, off screen). Output keeps flowing either way.
+    let webgl: WebglAddon | null = null;
+    const renderer = registerRenderer(
+      id,
+      () => {
+        try {
+          const addon = new WebglAddon();
+          // A lost context leaves a frozen frame; disposing the addon falls
+          // back to the DOM renderer.
+          addon.onContextLoss(() => {
+            addon.dispose();
+            if (webgl === addon) webgl = null;
+            renderer.lost();
+          });
+          term.loadAddon(addon);
+          webgl = addon;
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      () => {
+        webgl?.dispose();
+        webgl = null;
+      },
+    );
+    const visibility = new IntersectionObserver(
+      (records) => {
+        const record = records[records.length - 1];
+        if (record) renderer.setVisible(record.isIntersecting);
+      },
+      { rootMargin: "200px" },
+    );
+    visibility.observe(container);
+    const onFocus = () => renderer.touch();
+    container.addEventListener("focusin", onFocus);
+
     fit.fit();
     termRef.current = term;
+    fitRef.current = fit;
 
-    // Listeners registered before spawn so no early output is dropped.
-    const unlistenOutput = pty.onTerminalOutput(id, (bytes) => {
-      term.write(bytes);
-    });
+    let pendingBytes = 0;
+    let outputPaused = false;
+    const onOutput = (bytes: Uint8Array) => {
+      pendingBytes += bytes.length;
+      term.write(bytes, () => {
+        pendingBytes -= bytes.length;
+        if (outputPaused && pendingBytes < OUTPUT_LOW_WATER) {
+          outputPaused = false;
+          void pty.setTerminalOutputPaused(id, false).catch(() => {});
+        }
+      });
+      if (!outputPaused && pendingBytes > OUTPUT_HIGH_WATER) {
+        outputPaused = true;
+        void pty.setTerminalOutputPaused(id, true).catch(() => {});
+      }
+    };
+
+    // Exit listener registered before spawn so an early exit is not missed.
     const unlistenExit = pty.onTerminalExit(id, (code) => {
       setStatus("exited");
       term.writeln(`\r\n[process exited${code === null ? "" : ` (${code})`}]`);
     });
 
+    // A resume command applies to this spawn only; restarts run the
+    // terminal's own command again.
+    const command = launchCommandRef.current ?? dataRef.current.command;
+    launchCommandRef.current = undefined;
     pty
       .createTerminal({
         id,
         cwd: dataRef.current.cwd,
-        command: dataRef.current.command,
+        command,
         cols: term.cols,
         rows: term.rows,
-      })
+      }, onOutput)
       .then(() => setStatus("running"))
       .catch((err: unknown) => {
         setStatus("exited");
         term.writeln(`Failed to start terminal: ${String(err)}`);
       });
 
+    // The directory and the running agent can only change after a submitted
+    // line (`cd`, `claude`, `/exit`...), so they are read once shortly after
+    // Enter instead of polled.
+    let syncTimer: ReturnType<typeof setTimeout> | undefined;
+    const syncState = (allowResync: boolean) => {
+      void pty
+        .getTerminalCwds([id])
+        .then((cwds) => useWorkspaceStore.getState().applyTerminalCwds(cwds))
+        .catch(() => {});
+      if (!useSettingsStore.getState().settings.sessions.restoreAgentSessions) {
+        return;
+      }
+      void pty
+        .getTerminalAgents([id])
+        .then((agents) => {
+          useWorkspaceStore.getState().applyTerminalAgents([id], agents);
+          // The agent may still be booting, or not yet have registered its
+          // session: look once more a little later.
+          if (allowResync && (agents[id]?.sessionId ?? null) === null) {
+            syncTimer = setTimeout(
+              () => syncState(false),
+              AGENT_RESYNC_DELAY_MS,
+            );
+          }
+        })
+        .catch(() => {});
+    };
+
+    term.attachCustomKeyEventHandler((e) => {
+      // Skipping xterm lets the webview fire a native `paste` on its textarea;
+      // xterm then sends the text (bracketed when the app asked for it).
+      if (isPasteShortcut(e)) return false;
+      if (isNewlineShortcut(e)) {
+        // xterm sends a bare \r for any Enter, which submits. A line feed is
+        // what Claude Code / Codex read as "new line" (same as Ctrl+J).
+        if (e.type === "keydown") {
+          e.preventDefault();
+          void pty.writeToTerminal(id, "\n").catch(() => {});
+        }
+        return false;
+      }
+      return true;
+    });
+
+    // Clipboard without text (e.g. a screenshot): forward the raw Ctrl+V so
+    // agents that read the clipboard themselves can still attach it.
+    const onPaste = (e: ClipboardEvent) => {
+      if ((e.clipboardData?.getData("text/plain") ?? "") !== "") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void pty.writeToTerminal(id, CTRL_V).catch(() => {});
+    };
+    container.addEventListener("paste", onPaste, true);
+
     const dataSub = term.onData((input) => {
+      renderer.touch();
       // Ignore rejections: the PTY may have already exited.
       void pty.writeToTerminal(id, input).catch(() => {});
+      if (input.includes("\r")) {
+        clearTimeout(syncTimer);
+        syncTimer = setTimeout(() => syncState(true), CWD_SYNC_DELAY_MS);
+      }
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
       void pty.resizeTerminal(id, cols, rows).catch(() => {});
@@ -157,16 +349,28 @@ function TerminalNodeComponent({
     observer.observe(container);
 
     return () => {
+      clearTimeout(syncTimer);
+      container.removeEventListener("paste", onPaste, true);
+      container.removeEventListener("focusin", onFocus);
       observer.disconnect();
+      visibility.disconnect();
+      renderer.dispose();
       dataSub.dispose();
       resizeSub.dispose();
-      void unlistenOutput.then((fn) => fn());
       void unlistenExit.then((fn) => fn());
       termRef.current = null;
+      fitRef.current = null;
       term.dispose();
       void pty.killTerminal(id).catch(() => {});
     };
   }, [id, spawnKey]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || term.options.fontSize === fontSize) return;
+    term.options.fontSize = fontSize;
+    fitRef.current?.fit();
+  }, [fontSize]);
 
   // Clear any pending flash timer on unmount so it never fires setState late.
   useEffect(
@@ -176,10 +380,48 @@ function TerminalNodeComponent({
     [],
   );
 
+  // Only the first start of a restored terminal resumes its agent session.
+  const resumeSession =
+    spawnKey === 0 && restoreAgentSessions ? data.agentSession : undefined;
+  const startedRef = useRef(data.autoStart);
+
   const start = () => {
+    startedRef.current = true;
+    if (resumeSession) launchCommandRef.current = resumeCommand(resumeSession);
     setStatus("starting");
     setSpawnKey((k) => k + 1);
   };
+  const startRef = useRef(start);
+  startRef.current = start;
+
+  // Automatic resume: restored terminals go through the launch queue once
+  // settings are known, instead of all spawning on the first frame.
+  useEffect(() => {
+    if (startedRef.current) return;
+    let cancelLaunch: (() => void) | undefined;
+    const schedule = () => {
+      const { sessions } = useSettingsStore.getState().settings;
+      if (sessions.resumeMode !== "auto" || !sessions.restoreAgentSessions) {
+        return;
+      }
+      cancelLaunch = enqueueLaunch(dataRef.current.agentSession !== undefined, () => {
+        if (!startedRef.current) startRef.current();
+      });
+    };
+    if (useSettingsStore.getState().loaded) {
+      schedule();
+      return () => cancelLaunch?.();
+    }
+    const unsubscribe = useSettingsStore.subscribe((state) => {
+      if (!state.loaded) return;
+      unsubscribe();
+      schedule();
+    });
+    return () => {
+      unsubscribe();
+      cancelLaunch?.();
+    };
+  }, []);
 
   const commitLabel = (value: string) => {
     updateNodeData(id, {
@@ -271,7 +513,17 @@ function TerminalNodeComponent({
         position={Position.Right}
         className="podium-handle"
       />
-      <div className="terminal-node__header">
+      <div
+        className="terminal-node__header"
+        onPointerDown={() => {
+          // Hand keyboard focus from the shell to the canvas so node
+          // shortcuts (Ctrl+C / Ctrl+V) apply instead of reaching the PTY.
+          const active = document.activeElement;
+          if (active instanceof HTMLElement && active.closest(".xterm")) {
+            active.blur();
+          }
+        }}
+      >
         <span
           className={`terminal-node__status terminal-node__status--${status}`}
         />
@@ -296,7 +548,9 @@ function TerminalNodeComponent({
           </span>
         )}
         <span className="terminal-node__command">
-          {data.command ?? "shell"}
+          {(restoreAgentSessions ? data.agentSession?.kind : undefined) ??
+            data.command ??
+            "shell"}
         </span>
         <button
           className={`terminal-node__lock nodrag ${
@@ -333,15 +587,12 @@ function TerminalNodeComponent({
         {(status === "idle" || (status === "exited" && spawnKey > 0)) && (
           <div className="terminal-node__overlay nodrag">
             <button className="terminal-node__start" onClick={start}>
-              {status === "idle"
-                ? `▶ Start ${data.command ?? "shell"}`
-                : "↻ Restart"}
+              {status !== "idle"
+                ? "↻ Restart"
+                : resumeSession
+                  ? `▶ Resume ${resumeSession.kind}`
+                  : `▶ Start ${data.command ?? "shell"}`}
             </button>
-            {status === "idle" && (
-              <p className="terminal-node__overlay-hint">
-                Restored terminals never auto-run
-              </p>
-            )}
           </div>
         )}
         {flash && <div className="terminal-node__flash">{flash}</div>}

@@ -1,8 +1,13 @@
 import { useEffect } from "react";
 import { Canvas } from "./canvas/Canvas";
 import { useWorkspaceStore, type PodiumNode } from "./store/workspace";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { loadWorkspace, saveWorkspace } from "./lib/persist";
+import { getTerminalAgents, getTerminalCwds } from "./lib/pty";
+import { useSettingsStore } from "./store/settings";
 import "./App.css";
+
+const CLOSE_SAVE_TIMEOUT_MS = 2000;
 
 const firstRunNodes: PodiumNode[] = [
   {
@@ -53,11 +58,42 @@ function App() {
     // Best-effort save if the window closes inside the debounce window.
     window.addEventListener("beforeunload", flush);
 
+    // On close, capture every running shell's directory and save before the
+    // window is destroyed. Bounded so a stuck call can never block closing.
+    const unlistenClose = getCurrentWindow().onCloseRequested(async () => {
+      const state = useWorkspaceStore.getState();
+      if (!state.hydrated) return;
+      const ids = state.nodes
+        .filter((n) => n.type === "terminal")
+        .map((n) => n.id);
+      const save = (async () => {
+        if (ids.length > 0) {
+          const captureAgents =
+            useSettingsStore.getState().settings.sessions.restoreAgentSessions;
+          const [cwds, agents] = await Promise.all([
+            getTerminalCwds(ids),
+            captureAgents ? getTerminalAgents(ids) : null,
+          ]);
+          state.applyTerminalCwds(cwds);
+          if (agents) state.applyTerminalAgents(ids, agents);
+        }
+        clearTimeout(timer);
+        dirty = false;
+        const latest = useWorkspaceStore.getState();
+        await saveWorkspace(latest.nodes, latest.edges);
+      })();
+      await Promise.race([
+        save.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, CLOSE_SAVE_TIMEOUT_MS)),
+      ]);
+    });
+
     return () => {
       unsubscribe();
       clearInterval(interval);
       clearTimeout(timer);
       window.removeEventListener("beforeunload", flush);
+      void unlistenClose.then((fn) => fn());
     };
   }, []);
 

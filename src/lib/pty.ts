@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export interface CreateTerminalOptions {
@@ -9,14 +9,37 @@ export interface CreateTerminalOptions {
   rows: number;
 }
 
-export function createTerminal(opts: CreateTerminalOptions): Promise<void> {
+/** Spawns the PTY. Raw output bytes arrive through `onOutput` (coalesced to
+ *  at most one message per frame); pass them straight to xterm so its decoder
+ *  handles split UTF-8. */
+export function createTerminal(
+  opts: CreateTerminalOptions,
+  onOutput: (data: Uint8Array) => void,
+): Promise<void> {
+  const channel = new Channel<ArrayBuffer>();
+  channel.onmessage = (buffer) => onOutput(new Uint8Array(buffer));
   return invoke("create_terminal", {
     id: opts.id,
     cwd: opts.cwd ?? null,
     command: opts.command ?? null,
     cols: opts.cols,
     rows: opts.rows,
+    onOutput: channel,
   });
+}
+
+/** Tells the backend whether the webview is visible; output is restored from
+ *  the backend's screen mirror when it shows again. */
+export function setUiVisible(visible: boolean): Promise<void> {
+  return invoke("set_ui_visible", { visible });
+}
+
+/** Backpressure: hold this terminal's output while xterm catches up. */
+export function setTerminalOutputPaused(
+  id: string,
+  paused: boolean,
+): Promise<void> {
+  return invoke("set_terminal_output_paused", { id, paused });
 }
 
 export function writeToTerminal(id: string, data: string): Promise<void> {
@@ -31,18 +54,28 @@ export function resizeTerminal(
   return invoke("resize_terminal", { id, cols, rows });
 }
 
-export function killTerminal(id: string): Promise<void> {
-  return invoke("kill_terminal", { id });
+/** Shell's current directory per terminal id; unknown / not running ids are omitted. */
+export function getTerminalCwds(ids: string[]): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("get_terminal_cwds", { ids });
 }
 
-/** Raw PTY bytes; pass straight to xterm so its decoder handles split UTF-8. */
-export function onTerminalOutput(
-  id: string,
-  cb: (data: Uint8Array) => void,
-): Promise<UnlistenFn> {
-  return listen<number[]>(`terminal-output:${id}`, (event) => {
-    cb(new Uint8Array(event.payload));
-  });
+export type AgentKind = "claude" | "codex" | "opencode";
+
+export interface AgentSession {
+  kind: AgentKind;
+  /** Agent's own session id; null → resume the last session in the terminal's cwd. */
+  sessionId: string | null;
+}
+
+/** Agent CLI running in each terminal's shell; ids without one are omitted. */
+export function getTerminalAgents(
+  ids: string[],
+): Promise<Record<string, AgentSession>> {
+  return invoke<Record<string, AgentSession>>("get_terminal_agents", { ids });
+}
+
+export function killTerminal(id: string): Promise<void> {
+  return invoke("kill_terminal", { id });
 }
 
 export function onTerminalExit(
