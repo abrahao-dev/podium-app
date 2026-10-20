@@ -483,3 +483,8 @@ body {
   background: #7aa2f7;
   border-radius: 2px;
 }
+
+.canvas--panning,
+.canvas--panning * {
+  cursor: grabbing !important;
+}

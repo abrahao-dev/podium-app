@@ -31,6 +31,11 @@ export function resizeTerminal(
   return invoke("resize_terminal", { id, cols, rows });
 }
 
+/** Shell's current directory per terminal id; unknown / not running ids are omitted. */
+export function getTerminalCwds(ids: string[]): Promise<Record<string, string>> {
+  return invoke<Record<string, string>>("get_terminal_cwds", { ids });
+}
+
 export function killTerminal(id: string): Promise<void> {
   return invoke("kill_terminal", { id });
 }

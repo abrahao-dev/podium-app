@@ -27,6 +27,31 @@ const TERMINAL_THEME = {
 };
 
 const CAPTURE_LINES = 20;
+/** Gives the shell time to run the submitted line and redraw its prompt. */
+const CWD_SYNC_DELAY_MS = 500;
+
+const IS_MAC = navigator.userAgent.includes("Mac");
+const IS_WINDOWS = navigator.userAgent.includes("Windows");
+/** Ctrl+V as a raw control byte (what the PTY got before paste was wired). */
+const CTRL_V = "\x16";
+
+/**
+ * Ctrl+V (Windows) and Ctrl+Shift+V (Windows/Linux) paste from the system
+ * clipboard. macOS already pastes with Cmd+V, so Ctrl+V still reaches the PTY.
+ */
+function isPasteShortcut(e: KeyboardEvent): boolean {
+  if (IS_MAC || !e.ctrlKey || e.altKey || e.metaKey || e.code !== "KeyV") {
+    return false;
+  }
+  return e.shiftKey || IS_WINDOWS;
+}
+
+/** Ctrl+Enter / Shift+Enter insert a line break in agent prompts. */
+function isNewlineShortcut(e: KeyboardEvent): boolean {
+  return (
+    e.key === "Enter" && (e.ctrlKey || e.shiftKey) && !e.altKey && !e.metaKey
+  );
+}
 
 /** Last non-empty lines of the terminal buffer (scrollback included). */
 function lastLines(term: Terminal, max: number): string {
@@ -116,9 +141,14 @@ function TerminalNodeComponent({
     term.loadAddon(fit);
     term.open(container);
     try {
-      term.loadAddon(new WebglAddon());
+      const webgl = new WebglAddon();
+      // The webview caps live WebGL contexts (~16) and drops the oldest
+      // beyond that; without this the terminal keeps a frozen frame.
+      // Disposing the addon falls back to the DOM renderer.
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
     } catch {
-      // WebGL unavailable — canvas renderer fallback is fine.
+      // WebGL unavailable — DOM renderer fallback is fine.
     }
     fit.fit();
     termRef.current = term;
@@ -146,9 +176,49 @@ function TerminalNodeComponent({
         term.writeln(`Failed to start terminal: ${String(err)}`);
       });
 
+    // The directory can only change after a submitted line (e.g. `cd`), so it
+    // is read once shortly after Enter instead of polled.
+    let cwdTimer: ReturnType<typeof setTimeout> | undefined;
+    const syncCwd = () => {
+      void pty
+        .getTerminalCwds([id])
+        .then((cwds) => useWorkspaceStore.getState().applyTerminalCwds(cwds))
+        .catch(() => {});
+    };
+
+    term.attachCustomKeyEventHandler((e) => {
+      // Skipping xterm lets the webview fire a native `paste` on its textarea;
+      // xterm then sends the text (bracketed when the app asked for it).
+      if (isPasteShortcut(e)) return false;
+      if (isNewlineShortcut(e)) {
+        // xterm sends a bare \r for any Enter, which submits. A line feed is
+        // what Claude Code / Codex read as "new line" (same as Ctrl+J).
+        if (e.type === "keydown") {
+          e.preventDefault();
+          void pty.writeToTerminal(id, "\n").catch(() => {});
+        }
+        return false;
+      }
+      return true;
+    });
+
+    // Clipboard without text (e.g. a screenshot): forward the raw Ctrl+V so
+    // agents that read the clipboard themselves can still attach it.
+    const onPaste = (e: ClipboardEvent) => {
+      if ((e.clipboardData?.getData("text/plain") ?? "") !== "") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void pty.writeToTerminal(id, CTRL_V).catch(() => {});
+    };
+    container.addEventListener("paste", onPaste, true);
+
     const dataSub = term.onData((input) => {
       // Ignore rejections: the PTY may have already exited.
       void pty.writeToTerminal(id, input).catch(() => {});
+      if (input.includes("\r")) {
+        clearTimeout(cwdTimer);
+        cwdTimer = setTimeout(syncCwd, CWD_SYNC_DELAY_MS);
+      }
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
       void pty.resizeTerminal(id, cols, rows).catch(() => {});
@@ -157,6 +227,8 @@ function TerminalNodeComponent({
     observer.observe(container);
 
     return () => {
+      clearTimeout(cwdTimer);
+      container.removeEventListener("paste", onPaste, true);
       observer.disconnect();
       dataSub.dispose();
       resizeSub.dispose();
@@ -271,7 +343,17 @@ function TerminalNodeComponent({
         position={Position.Right}
         className="podium-handle"
       />
-      <div className="terminal-node__header">
+      <div
+        className="terminal-node__header"
+        onPointerDown={() => {
+          // Hand keyboard focus from the shell to the canvas so node
+          // shortcuts (Ctrl+C / Ctrl+V) apply instead of reaching the PTY.
+          const active = document.activeElement;
+          if (active instanceof HTMLElement && active.closest(".xterm")) {
+            active.blur();
+          }
+        }}
+      >
         <span
           className={`terminal-node__status terminal-node__status--${status}`}
         />
