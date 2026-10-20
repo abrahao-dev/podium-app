@@ -56,11 +56,19 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # tauri-build checks that bundle.externalBin exists, so the sidecar must
+      # be staged before clippy compiles the app crate.
+      - name: Build agent CLI
+        run: npm run build:cli
+
       - name: Type-check + build frontend
         run: npm run build
 
       - name: Clippy (deny warnings)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Clippy agent CLI (deny warnings)
+        run: cargo clippy --manifest-path src-tauri/cli/Cargo.toml -- -D warnings
 
       - name: Build Tauri app
         run: npm run tauri build

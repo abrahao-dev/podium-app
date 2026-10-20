@@ -1,0 +1,22 @@
+[package]
+name = "podium-cli"
+version = "0.1.1"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "podium"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Standalone crate: never a member of a parent workspace.
+[workspace]

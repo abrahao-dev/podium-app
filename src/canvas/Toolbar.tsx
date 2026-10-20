@@ -1,14 +1,21 @@
 import { useState } from "react";
 import { Panel, useReactFlow } from "@xyflow/react";
 import { useWorkspaceStore } from "../store/workspace";
+import { agentCommand } from "../lib/bridge";
 
-/** Preset launch commands. `undefined` = plain shell (PATH-resolved by the
- *  spawned shell, so bare command names work cross-platform). */
-const AGENT_PRESETS: { label: string; command?: string }[] = [
-  { label: "Shell", command: undefined },
-  { label: "Claude Code", command: "claude" },
-  { label: "Codex", command: "codex" },
-  { label: "OpenCode", command: "opencode" },
+/** Launch presets. Agent commands are resolved by the backend so agents
+ *  report their state to the bridge; `agent: undefined` = plain shell. */
+const AGENT_PRESETS: {
+  label: string;
+  agent?: string;
+  hint?: string;
+  orchestrator?: boolean;
+}[] = [
+  { label: "Shell" },
+  { label: "Claude Code", agent: "claude", hint: "claude" },
+  { label: "Codex", agent: "codex", hint: "codex" },
+  { label: "OpenCode", agent: "opencode", hint: "opencode" },
+  { label: "Orchestrator", agent: "claude", hint: "♛ claude", orchestrator: true },
 ];
 
 export function Toolbar() {
@@ -22,12 +29,28 @@ export function Toolbar() {
       x: window.innerWidth / 2,
       y: window.innerHeight / 2,
     });
-    return { x: pos.x + offsetX, y: pos.y + offsetY };
+    // Whole pixels keep terminal text crisp at 100% zoom.
+    return {
+      x: Math.round(pos.x + offsetX),
+      y: Math.round(pos.y + offsetY),
+    };
   };
 
-  const spawn = (command?: string) => {
-    addTerminal(centerPosition(-320, -200), command);
+  const spawn = (preset: (typeof AGENT_PRESETS)[number]) => {
     setMenuOpen(false);
+    const position = centerPosition(-320, -200);
+    const extra = preset.orchestrator
+      ? { orchestrator: true, allowIncoming: true }
+      : undefined;
+    const label = preset.orchestrator ? "Orchestrator" : undefined;
+    if (!preset.agent) {
+      addTerminal(position, undefined, label, extra);
+      return;
+    }
+    const fallback = preset.agent;
+    void agentCommand(preset.agent, false)
+      .catch(() => fallback)
+      .then((command) => addTerminal(position, command || fallback, label, extra));
   };
 
   return (
@@ -50,11 +73,11 @@ export function Toolbar() {
                 <button
                   key={preset.label}
                   className="toolbar__menu-item"
-                  onClick={() => spawn(preset.command)}
+                  onClick={() => spawn(preset)}
                 >
                   {preset.label}
-                  {preset.command && (
-                    <span className="toolbar__menu-cmd">{preset.command}</span>
+                  {preset.hint && (
+                    <span className="toolbar__menu-cmd">{preset.hint}</span>
                   )}
                 </button>
               ))}
